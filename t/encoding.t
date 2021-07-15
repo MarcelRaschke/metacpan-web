@@ -1,10 +1,9 @@
 # vim: set ts=2 sts=2 sw=2 expandtab smarttab:
 use strict;
 use warnings;
-use utf8;
 use Test::More;
-use MetaCPAN::Web::Test;
-use Encode qw( is_utf8 decode encode );
+use MetaCPAN::Web::Test qw( override_api_response );
+use Encode qw( encode is_utf8 );
 
 my ( $res_body, $content_type ) = ( q{}, 'text/plain' );
 
@@ -15,10 +14,9 @@ override_api_response sub {
     return [ 200, [ Content_Type => $content_type ], [$res_body] ];
 };
 
-use MetaCPAN::Web::Model::API::Module;
+use MetaCPAN::Web::Model::API::Module ();
 my $model
-    = MetaCPAN::Web::Model::API::Module->new(
-    api_secure => 'http://example.com' );
+    = MetaCPAN::Web::Model::API::Module->new( api => 'http://example.com' );
 
 # $body
 # $body, $type
@@ -92,14 +90,19 @@ foreach my $ctype ( 'text/plain', 'application/json' ) {
     # it should go through the same process as any other content type
     subtest "check raw responses from the api (content-type: $ctype)" => sub {
 
+        my $lax_perl_char = do {
+            no warnings qw(portable);
+            "\x{FFFF_FFFF}";
+        };
+
         # test that a raw, non-utf8 response is unchanged
         foreach my $bad (
             [
-                encode( utf8 => "foo\x{FFFF_FFFF}bar" ),
+                encode( utf8 => "foo${lax_perl_char}bar" ),
                 'encoded lax perl utf8 chars'
             ],
             [
-                encode( utf8 => "=encoding  utf8\n\nfoo\x{FFFF_FFFF}bar" ),
+                encode( utf8 => "=encoding  utf8\n\nfoo${lax_perl_char}bar" ),
                 '=encoding utf8 with bad chars'
             ],
             [ "\225 cp1252 bullet", 'invalid utf-8 bytes' ],
@@ -127,7 +130,7 @@ foreach my $ctype ( 'text/plain', 'application/json' ) {
             encode( 'UTF-8' => "foo\x{273f}bar" ),
             join( q{},
                 map {chr} 0x66, 0x6f, 0x6f, 0xe2, 0x9c,
-                0xbf, 0x62, 0x61, 0x72 ),
+                0xbf,           0x62, 0x61, 0x72 ),
             )
         {
             test_raw_response( $str, "foo\x{273f}bar", 'UTF-8 decodes' );
@@ -178,7 +181,8 @@ subtest 'check requests sent to the api' => sub {
     check_request(
         'PUT json with character string',
         [
-            '/whats/this' => { mistletoe => '1F384 🎄 CHRISTMAS TREE' },
+            '/whats/this' =>
+                { mistletoe => "1F384 \x{1F384} CHRISTMAS TREE" },
             { access_token => 'nightmare' }, 'PUT',
         ],
         {
@@ -201,7 +205,7 @@ done_testing;
 
 sub check_request {
     my ( $desc, $args, $exp ) = @_;
-    my $uri = $model->api_secure->clone;
+    my $uri = $model->api->clone;
     $uri->path_query( $exp->{uri} );
     $exp->{uri} = $uri;
     $model->request(@$args);

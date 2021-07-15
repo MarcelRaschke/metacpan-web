@@ -10,6 +10,7 @@ BEGIN { extends 'MetaCPAN::Web::Controller' }
 # /sysadmin/datacenters/list
 sub list_datacenters : Path('list') : Args(0) GET {
     my ( $self, $c ) = @_;
+    $c->stash( { current_view => 'JSON' } );
 
     # Fetch the data center info from fastly
     # XXX: will not work unless you have the credentials
@@ -27,8 +28,7 @@ sub list_datacenters : Path('list') : Args(0) GET {
     $c->cdn_max_age('1d');
     $c->browser_max_age('1d');
 
-    $c->stash( { success => $datacenters } );
-    $c->detach( $c->view('JSON') );
+    $c->stash( { json => { success => $datacenters } } );
 }
 
 __PACKAGE__->meta->make_immutable;

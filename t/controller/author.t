@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 use Test::More;
-use MetaCPAN::Web::Test;
+use MetaCPAN::Web::Test qw( app GET test_psgi tx );
 
 test_psgi app, sub {
     my $cb = shift;
@@ -24,7 +24,8 @@ test_psgi app, sub {
 
     ok(
         $tx->find_value(
-            '//table[@id="author_favorites"]//tbody/tr[1]/td[1]//a/@href'),
+            '//table[@id="metacpan_author_favorites"]//tbody/tr[1]/td[1]//a/@href'
+        ),
         'found a favorite'
     );
 

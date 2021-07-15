@@ -2,6 +2,8 @@ package MetaCPAN::Web::Controller::Root;
 use Moose;
 use Log::Log4perl::MDC;
 use namespace::autoclean;
+use HTTP::Status ();
+use Try::Tiny;
 
 BEGIN { extends 'MetaCPAN::Web::Controller' }
 
@@ -32,7 +34,9 @@ sub index : Path : Args(0) {
     $c->browser_max_age('1h');
     $c->cdn_max_age('1y');
 
-    $c->stash->{template} = 'home.html';
+    $c->stash( {
+        template => 'home.tx',
+    } );
 }
 
 =head2 default
@@ -51,8 +55,8 @@ sub not_found : Private {
     $c->cdn_never_cache(1);
 
     $c->stash( {
-        template => 'not_found.html',
-        search   => [ @{ $c->req->args }, @{ $c->req->captures } ],
+        template     => 'not_found.tx',
+        search_terms => [ @{ $c->req->args }, @{ $c->req->captures } ],
     } );
     $c->response->status(404);
 }
@@ -61,7 +65,10 @@ sub internal_error : Private {
     my ( $self, $c ) = @_;
     $c->cdn_never_cache(1);
 
-    $c->stash( { template => 'internal_error.html' } );
+    $c->stash( {
+        template => 'internal_error.tx',
+        json     => { error => 500, message => 'Internal Error' },
+    } );
     $c->response->status(500);
 }
 
@@ -69,7 +76,10 @@ sub forbidden : Private {
     my ( $self, $c ) = @_;
     $c->cdn_never_cache(1);
 
-    $c->stash( { template => 'forbidden.html' } );
+    $c->stash( {
+        template => 'forbidden.tx',
+        json     => { error => 403, message => 'Forbidden' },
+    } );
     $c->response->status(403);
 }
 
@@ -80,7 +90,9 @@ sub robots : Path("robots.txt") : Args(0) {
     $c->browser_max_age('1d');
     $c->cdn_max_age('1y');
 
-    $c->stash( { template => 'robots.txt' } );
+    $c->stash( {
+        template => 'robots.txt',
+    } );
 }
 
 =head2 end
@@ -92,23 +104,32 @@ Attempt to render a view, if needed.
 sub end : ActionClass('RenderView') {
     my ( $self, $c ) = @_;
 
-    # Pass through to the front end
-    if ( $ENV{PLACK_ENV} && $ENV{PLACK_ENV} eq 'development' ) {
-        $c->stash->{PLACK_ENV} = 'development';
+    # for normal errors, try to render the internal_error page rather
+    my @error = @{ $c->error };
+    if ( @error && !$c->debug ) {
+        my %stash = %{ $c->stash };
+
+        $c->forward('/internal_error');
+        $c->forward( $c->view );
+
+        # if rendering our template worked, log the errors, and prevent
+        # Catalyst from rendering its own error page.
+        if ( @{ $c->error } == @error ) {
+            $c->log->error($_) for @error;
+            $c->error(0);
+        }
+        else {
+            %{ $c->stash } = %stash;
+        }
     }
-    $c->stash->{req}        = $c->req;
-    $c->stash->{api}        = $c->config->{api};
-    $c->stash->{api_secure} = $c->config->{api_secure} || $c->config->{api};
-    $c->stash->{api_external_secure} = $c->config->{api_external_secure}
-        || $c->stash->{api_secure};
-    $c->stash->{oauth_prefix}
-        = $c->stash->{api_external_secure}
-        . '/oauth2/authorize?client_id='
-        . $c->config->{consumer_key};
-    $c->stash->{source_host} = $c->config->{source_host};
 
-    $c->stash->{site_alert_message} = $c->config->{site_alert_message};
-
+    if ( my $status_code = $c->response->status ) {
+        if ( $status_code != 200 ) {
+            $c->{stash}->{status_code} = $status_code;
+            $c->{stash}->{status_message}
+                = HTTP::Status::status_message($status_code);
+        }
+    }
 }
 
 =head1 AUTHOR

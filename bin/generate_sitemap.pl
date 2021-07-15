@@ -5,10 +5,11 @@
 use strict;
 use warnings;
 
-use File::Basename;
-use File::Spec;
-use Cwd;
-use Config::ZOMG;
+use File::Basename ();
+use File::Spec     ();
+use Cwd            ();
+use Config::ZOMG   ();
+
 my $root_dir;
 
 BEGIN {
@@ -39,7 +40,7 @@ for my $file ( sort keys %$sitemaps ) {
         s{/\z}{}, s{\A/}{} for $metacpan_url;
         "$web_host/$metacpan_url/";
     };
-    $sm_config{api_secure} = $config->{api_secure};
+    $sm_config{api} = $config->{api};
     my $sitemap = MetaCPAN::Sitemap->new(%sm_config);
     $sitemap->write($full_file);
 }

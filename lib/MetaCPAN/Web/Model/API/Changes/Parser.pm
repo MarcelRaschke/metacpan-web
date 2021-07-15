@@ -3,10 +3,9 @@ package MetaCPAN::Web::Model::API::Changes::Parser;
 use Moose;
 use version qw();
 
-my %months;
-my $m = 0;
-$months{$_} = ++$m for qw( Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec );
-my $months = join '|', keys %months;
+my @months = qw( Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec );
+my %months = map +( $months[$_] => $_ ), 0 .. $#months;
+my $months = join '|', @months;
 
 our $W3CDTF_REGEX = qr{
     (\d\d\d\d) # Year
@@ -90,24 +89,30 @@ sub parse {
     #
     # Sun Jan  29 2012
     # /changes/distribution/Scalar-Constant
+    #
+    # Sun Mar  0 11:40 2014 (AMS time)
+    # /release/YVES/Sereal-Encoder-3.000_004
     # XXX haarg is going to rip this out and replace it with something better.
                 elsif ( $note
                     =~ s{^(\D{3})\s+(\D{3})\s+(\d{1,2})\s+([\d:]+)?\D*(\d{4})}{}
                     )
                 {
+                    my @m     = @{^CAPTURE};
                     my $month = $months{$1} || $months{$2};
-                    if ( $month && $3 && $4 && $5 ) {
+                    if ( $month && !grep +( !defined || /[^\d:]/ ),
+                        @m[ 2 .. 4 ] )
+                    {
 
                         # unfortunately ignores TZ data
-                        $date = sprintf( '%d-%02d-%02dT%sZ', $5, $month, $3,
-                            $4 );
+                        $date = sprintf( '%d-%02d-%02dT%sZ',
+                            $m[4], $month, $m[2], $m[3] );
                     }
-                    elsif ( $month && $2 && $4 ) {
-                        $date = sprintf( '%d-%02d-%02d', $4, $month, $2 );
+                    elsif ( $month && $m[1] && $m[3] ) {
+                        $date
+                            = sprintf( '%d-%02d-%02d', $m[3], $month, $m[1] );
                     }
                     else {
-                        $note = join q{ }, grep {defined} $1, $2, $3, $4, $5,
-                            $note;
+                        $note = join q{ }, grep {defined} @m, $note;
                     }
                 }
 
@@ -122,10 +127,10 @@ sub parse {
 
                 # handle dist-zilla style, again ingoring TZ data
                 elsif ( $note
-                    =~ s{^(\d{4}-\d\d-\d\d)\s+(\d\d:\d\d(?::\d\d)?)(?:\s+[A-Za-z]+/[A-Za-z_-]+)}{}
+                    =~ s{^(\d{4}-\d\d-\d\d)\s+(\d\d:\d\d)(?::(\d\d))?(?:\s+[A-Za-z]+/[A-Za-z_-]+)}{}
                     )
                 {
-                    $date = sprintf( '%sT%sZ', $1, $2 );
+                    $date = sprintf( '%sT%s:%02dZ', $1, $2, $3 // 0 );
                 }
 
                 # start with W3CDTF, ignore rest
@@ -135,12 +140,16 @@ sub parse {
                     if ( $month =~ /\D/ ) {
                         $date =~ s{$month}{sprintf "%02d", $months{$month}}e;
                     }
+                    $date =~ s{/}{-}g;
                     $date =~ s{ }{T};
 
                     # Add UTC TZ if date ends at H:M, H:M:S or H:M:S.FS
+                    if ( length($date) == 16 ) {
+                        $date .= ':00';
+                    }
+
                     $date .= 'Z'
-                        if length($date) == 16
-                        || length($date) == 19
+                        if length($date) == 19
                         || $date =~ m{\.\d+$};
                 }
 

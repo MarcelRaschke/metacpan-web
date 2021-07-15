@@ -42,9 +42,7 @@ BEGIN {
     package MetaCPAN::Web::WarnHandler;
     Log::Log4perl->wrapper_register(__PACKAGE__);
     my $logger = Log::Log4perl->get_logger;
-    $SIG{__WARN__} = sub { $logger->warn(@_) };
-
-    $dev_mode and require Devel::Confess and Devel::Confess->import;
+    $SIG{__WARN__} = sub { $logger ? $logger->warn(@_) : warn @_ };
 }
 
 use lib "$root_dir/lib";
@@ -54,49 +52,6 @@ use MetaCPAN::Web;
 my $tempdir = is_linux_container() ? "/var/tmp" : "$root_dir/var/tmp";
 
 STDERR->autoflush;
-
-# rmtree causes warnings when tests are running
-if ( !$dev_mode && !$ENV{HARNESS_ACTIVE} ) {
-    my $view = MetaCPAN::Web->view('HTML');
-
-    if ( my $tmpl_cache = $view->config->{COMPILE_DIR} ) {
-        File::Path::rmtree( [ glob "$tmpl_cache/*" ] );
-    }
-
-    my @tmpl_dir = @{ $view->include_path };
-    my $alloy    = Template::Alloy->new( $view->config );
-
-    s{/\z}{} for @tmpl_dir;
-
-    my @templates;
-    for my $tmpl_dir (@tmpl_dir) {
-        File::Find::find(
-            {
-                no_chdir => 1,
-                wanted   => sub {
-                    if ( $_ eq $tmpl_dir . '/static' ) {
-                        $File::Find::prune = 1;
-                        return;
-                    }
-
-                    return
-                        if -d;
-
-                    push @templates, File::Spec->abs2rel( $_, $tmpl_dir );
-                },
-            },
-            $tmpl_dir,
-        );
-    }
-
-    for my $template (@templates) {
-
-        # might fail if we try to load something that isn't actually a
-        # template, and it can't be parsed.  Although that shouldn't happen
-        # because we are skipping static files.
-        eval { $alloy->load_template($template) };
-    }
-}
 
 # explicitly call ->to_app on every Plack::App::* for performance
 builder {
@@ -120,6 +75,32 @@ builder {
                 $env->{REMOTE_ADDR} = $addrs[0];
             }
             $app->($env);
+        };
+    };
+    enable sub {
+
+        # put all security-related headers here
+        my $app = shift;
+        sub {
+            my ($env) = @_;
+            Plack::Util::response_cb(
+                $app->($env),
+                sub {
+                    push @{ $_[0][1] }, 'Content-Security-Policy' => join(
+                        '; ',
+                        "default-src * data: 'unsafe-inline'",
+                        "frame-ancestors 'self' *.metacpan.org",
+
+        # temporary 'unsafe-eval' because root/static/js/jquery.tablesorter.js
+                        "script-src 'self' 'unsafe-eval' 'unsafe-inline' *.metacpan.org *.google-analytics.com *.google.com www.gstatic.com",
+
+                        ),
+                        'X-Frame-Options'        => "SAMEORIGIN",
+                        'X-XSS-Protection'       => "1; mode=block",
+                        'X-Content-Type-Options' => "nosniff",
+                        ;
+                },
+            );
         };
     };
     enable sub {
@@ -152,10 +133,15 @@ builder {
         );
     }
 
+    enable 'FixMissingBodyInRedirect';
+
+    enable '+MetaCPAN::Middleware::OldUrls';
+
     enable '+MetaCPAN::Middleware::Static' => (
         root     => $root_dir,
         dev_mode => $dev_mode,
         temp_dir => $tempdir,
+        config   => $config,
     );
 
     builder {
@@ -178,4 +164,3 @@ builder {
 sub is_linux_container {
     return -e '/proc/1/cgroup';
 }
-

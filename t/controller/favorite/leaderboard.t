@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 use Test::More;
-use MetaCPAN::Web::Test;
+use MetaCPAN::Web::Test qw( app GET test_psgi tx );
 
 test_psgi app, sub {
     my $cb = shift;
@@ -18,7 +18,7 @@ test_psgi app, sub {
                 my $anchor = shift;
                 $anchor->is(
                     './@href',
-                    '/release/' . $anchor->node->textContent,
+                    '/dist/' . $anchor->node->textContent,
                     'href points to release'
                 );
             },

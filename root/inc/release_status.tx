@@ -1,0 +1,5 @@
+%%  if $maturity == 'developer' {
+<li class="release-banner maturity-[% $maturity %]">
+  Development release
+</li>
+%%  }

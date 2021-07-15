@@ -2,12 +2,9 @@ package MetaCPAN::Web::Controller::Pod;
 
 use Moose;
 
-use Encode qw( encode decode DIE_ON_ERR LEAVE_SRC );
 use Future;
-use HTML::TokeParser ();
-use MetaCPAN::Web::RenderUtil 'filter_html';
+use MetaCPAN::Web::RenderUtil qw( filter_html );
 use Try::Tiny qw( try );
-use URI ();
 
 use namespace::autoclean;
 
@@ -28,66 +25,11 @@ sub find : Path : Args(1) {
 
     my $release_info
         = $c->model('ReleaseInfo')
-        ->get( $pod_file->{author}, $pod_file->{release},
-        $pod_file->{module}[0]{name} )->else( sub { Future->done( {} ) } );
+        ->get( $pod_file->{author}, $pod_file->{release}, $pod_file )
+        ->else( sub { Future->done( {} ) } );
     $c->stash( $release_info->get );
 
     # TODO: Disambiguate if there's more than one match. #176
-
-    $c->forward( 'view', [@path] );
-}
-
-# /pod/release/$AUTHOR/$release/@path
-sub release : Local : Args {
-    my ( $self, $c, $author, $release, @path ) = @_;
-
-    if ( !@path ) {
-        $c->detach('/not_found');
-    }
-    $c->browser_max_age('1d');
-
-    # force consistent casing in URLs
-    if ( $author ne uc $author ) {
-        $c->res->redirect(
-            $c->uri_for( $c->action, uc $author, $release, @path ), 301 );
-        $c->detach();
-    }
-
-    my $release_data
-        = $c->model('ReleaseInfo')->get( $author, $release )->else_done( {} );
-    my $pod_file = $c->model('API::Module')->get( $author, $release, @path );
-    $c->stash( {
-        pod_file => $pod_file->get,
-        %{ $release_data->get },
-        permalinks => 1,
-    } );
-
-    $c->forward( 'view', [ $author, $release, @path ] );
-}
-
-# /pod/distribution/$name/@path
-sub distribution : Local : Args {
-    my ( $self, $c, $dist, @path ) = @_;
-
-    $c->browser_max_age('1h');
-
-    $c->detach('/not_found')
-        if !defined $dist || !@path;
-
-# TODO: Could we do this with one query?
-# filter => { path => join('/', @path), distribution => $dist, status => latest }
-
-    # Get latest "author/release" of dist so we can use it to find the file.
-    # TODO: Pass size param so we can disambiguate?
-    my $release_data = try {
-        $c->model('ReleaseInfo')->find($dist)->get;
-    } or $c->detach('/not_found');
-
-    unshift @path, @{ $release_data->{release} }{qw( author name )};
-
-    $c->stash( {
-        %$release_data, pod_file => $c->model('API::Module')->get(@path)->get,
-    } );
 
     $c->forward( 'view', [@path] );
 }
@@ -134,21 +76,18 @@ sub view : Private {
             url_prefix => '/pod/',
         }
     )->get;
+    $c->detach('/not_found') if ( $pod->{code} || 0 ) > 399;
 
     my $pod_html = filter_html( $pod->{raw}, $data );
 
     my $release = $c->stash->{release};
 
-    #<<<
-    my $canonical = ( $documented_module
+    my $canonical
+        = (    $documented_module
             && $documented_module->{authorized}
-            && $documented_module->{indexed}
-        ) ? "/pod/$documentation"
-        : join(q{/}, q{}, qw( pod distribution ), $release->{distribution},
-            # Strip $author/$release from front of path.
-            @path[ 2 .. $#path ]
-        );
-    #>>>
+            && $documented_module->{indexed} )
+        ? "/pod/$documentation"
+        : "/dist/$release->{distribution}/view/$data->{path}";
 
     # Store at fastly for a year - as we will purge!
     $c->cdn_max_age('1y');
@@ -160,72 +99,11 @@ sub view : Private {
         documented_module => $documented_module,
         module            => $data,
         pod               => $pod_html,
-        template          => 'pod.html',
+        template          => 'pod.tx',
     } );
 
     unless ( $pod->{raw} ) {
         $c->stash( pod_error => $pod->{message}, );
-    }
-}
-
-sub pod2html : Path('/pod2html') {
-    my ( $self, $c ) = @_;
-    my $pod;
-    if ( my $pod_file = $c->req->upload('pod_file') ) {
-        my $raw_pod = $pod_file->slurp;
-        eval {
-            $pod = decode( 'UTF-8', $raw_pod, DIE_ON_ERR | LEAVE_SRC );
-            1;
-        } or $pod = decode( 'cp1252', $raw_pod );
-    }
-    elsif ( $pod = $c->req->parameters->{pod} ) {
-    }
-    else {
-        return;
-    }
-
-    $c->stash( { pod => $pod } );
-
-    my $html = $c->model('API')->request(
-        'pod_render',
-        undef,
-        {
-            pod         => encode( 'UTF-8', $pod ),
-            show_errors => 1,
-        },
-        'POST'
-    )->get->{raw};
-
-    $html = filter_html($html);
-
-    if ( $c->req->parameters->{raw} ) {
-        $c->res->content_type('text/html');
-        $c->res->body($html);
-        $c->detach;
-    }
-    else {
-        my ( $pod_name, $abstract );
-        my $p = HTML::TokeParser->new( \$html );
-        while ( my $t = $p->get_token ) {
-            my ( $type, $tag, $attr ) = @$t;
-            if (   $type eq 'S'
-                && $tag eq 'h1'
-                && $attr->{id}
-                && $attr->{id} eq 'NAME' )
-            {
-                my $name_section = $p->get_trimmed_text('h1');
-                if ($name_section) {
-                    ( $pod_name, $abstract )
-                        = $name_section =~ /(?:NAME\s+)?([^-]+)\s*-\s*(.*)/s;
-                }
-                last;
-            }
-        }
-        $c->stash( {
-            pod_rendered => $html,
-            ( $pod_name ? ( pod_name => $pod_name ) : () ),
-            ( $abstract ? ( abstract => $abstract ) : () ),
-        } );
     }
 }
 

@@ -5,7 +5,9 @@ use namespace::autoclean;
 extends 'MetaCPAN::Web::Model::API';
 with 'MetaCPAN::Web::Role::RiverData';
 
-use List::Util qw(first uniq);
+use CPAN::DistnameInfo;
+use Future ();
+use Ref::Util qw(is_arrayref);
 
 =head1 NAME
 
@@ -27,31 +29,33 @@ it under the same terms as Perl itself.
 =cut
 
 sub coverage {
-    my ( $self, $release ) = @_;
-    $self->request("/cover/$release");
+    my ( $self, $author, $release ) = @_;
+    $self->request("/cover/$release")->then( sub {
+        my $data = shift;
+        if ( !$data->{release} ) {
+            return Future->done( { code => 404 } );
+        }
+        return Future->done( { coverage => $data } );
+    } );
 }
 
 sub get {
     my ( $self, $author, $release ) = @_;
-    $self->request("/release/$author/$release");
-}
-
-sub distribution {
-    my ( $self, $dist ) = @_;
-    $self->request("/distribution/$dist");
+    $self->request("/release/$author/$release")->then( \&_with_distnameinfo )
+        ->then( \&_fix_dependency );
 }
 
 sub latest_by_author {
     my ( $self, $pauseid ) = @_;
     $self->request("/release/latest_by_author/$pauseid")
-        ->then( $self->add_river );
+        ->then( \&_with_distnameinfo )->then( $self->add_river );
 }
 
 sub all_by_author {
     my ( $self, $pauseid, $page, $page_size ) = @_;
     $self->request( "/release/all_by_author/$pauseid",
         undef, { page => $page, page_size => $page_size } )
-        ->then( $self->add_river );
+        ->then( \&_with_distnameinfo )->then( $self->add_river );
 }
 
 sub recent {
@@ -64,17 +68,24 @@ sub recent {
             page_size => $page_size,
             type      => $type,
         }
-    )->then( $self->add_river );
+    )->then( \&_with_distnameinfo )->then( $self->add_river );
 }
 
 sub modules {
     my ( $self, $author, $release ) = @_;
-    $self->request("/release/modules/$author/$release");
+    $self->request("/release/modules/$author/$release")->then( sub {
+        my $data = shift;
+        if ( my $modules = delete $data->{files} ) {
+            $data->{modules} = $modules;
+        }
+        Future->done($data);
+    } );
 }
 
 sub find {
     my ( $self, $distribution ) = @_;
-    $self->request("/release/latest_by_distribution/$distribution");
+    $self->request("/release/latest_by_distribution/$distribution")
+        ->then( \&_with_distnameinfo )->then( \&_fix_dependency );
 }
 
 # stolen from Module/requires
@@ -96,9 +107,11 @@ sub reverse_dependencies {
 
             # api should really be returning in this form already
             $data->{releases} ||= delete $data->{data};
+            $data->{total}    ||= 0;
+            $data->{took}     ||= 0;
             return $data;
         }
-    )->then( $self->add_river );
+    )->then( \&_with_distnameinfo )->then( $self->add_river );
 }
 
 sub interesting_files {
@@ -108,13 +121,44 @@ sub interesting_files {
 
 sub versions {
     my ( $self, $dist ) = @_;
-    $self->request("/release/versions/$dist");
+    $self->request("/release/versions/$dist")->then( \&_with_distnameinfo )
+        ->then( sub {
+        my ($data) = @_;
+        $data->{versions} = delete $data->{releases};
+        Future->done($data);
+        } );
 }
 
 sub topuploaders {
     my ( $self, $range ) = @_;
     my $param = $range ? { range => $range } : ();
     $self->request( '/release/top_uploaders', undef, $param );
+}
+
+sub _with_distnameinfo {
+    my ($data) = @_;
+    my $releases
+        = $data->{releases} ? $data->{releases} : [ $data->{release} || () ];
+    for my $release (@$releases) {
+        if ( my $url = $release->{download_url} ) {
+            $release->{distnameinfo} = CPAN::DistnameInfo->new($url);
+        }
+    }
+    Future->done($data);
+}
+
+sub _fix_dependency {
+    my ($data) = @_;
+    my $releases
+        = $data->{releases} ? $data->{releases} : [ $data->{release} || () ];
+    for my $release (@$releases) {
+        if ( $release->{dependency}
+            && !is_arrayref( $release->{dependency} ) )
+        {
+            $release->{dependency} = [ $release->{dependency} ];
+        }
+    }
+    Future->done($data);
 }
 
 __PACKAGE__->meta->make_immutable;

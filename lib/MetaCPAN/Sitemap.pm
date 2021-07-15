@@ -1,24 +1,24 @@
 package MetaCPAN::Sitemap;
 use strict;
 use warnings;
-use IO::Socket::SSL qw(SSL_VERIFY_PEER);
+use IO::Socket::SSL qw( SSL_VERIFY_PEER );
 use IO::Async::Loop;
 use IO::Async::SSL;
 use Net::Async::HTTP;
-use Cpanel::JSON::XS;
-use IO::Compress::Gzip;
-use HTML::Entities qw(encode_entities_numeric);
+use Cpanel::JSON::XS   ();
+use IO::Compress::Gzip ();
+use HTML::Entities qw( encode_entities_numeric );
 use Future;
 
 use Moo;
 
-has api_secure  => ( is => 'ro',   required => 1 );
-has url_prefix  => ( is => 'ro',   required => 1 );
-has object_type => ( is => 'ro',   required => 1 );
-has field_name  => ( is => 'ro',   required => 1 );
+has api         => ( is => 'ro', required => 1 );
+has url_prefix  => ( is => 'ro', required => 1 );
+has object_type => ( is => 'ro', required => 1 );
+has field_name  => ( is => 'ro', required => 1 );
 has filter      => ( is => 'ro' );
-has size        => ( is => 'ro',   default  => 1000 );
-has loop        => ( is => 'lazy', default  => sub { IO::Async::Loop->new } );
+has size        => ( is => 'ro',   default => 1000 );
+has loop        => ( is => 'lazy', default => sub { IO::Async::Loop->new } );
 has ua          => (
     is      => 'lazy',
     default => sub {
@@ -54,7 +54,7 @@ my $json = Cpanel::JSON::XS->new->utf8->canonical;
 
 sub _request {
     my ( $self, $content, $cb ) = @_;
-    my $url          = $self->api_secure . '/';
+    my $url          = $self->api . '/';
     my $content_type = 'text/plain';
     if ( ref $content ) {
         $url .= $self->object_type . '/';

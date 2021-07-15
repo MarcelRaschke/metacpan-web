@@ -5,14 +5,14 @@ package MetaCPAN::Web::Test;
 use strict;
 use warnings;
 
-use Plack::Test;
-use HTTP::Request::Common;
-use HTTP::Message::PSGI;
+use Plack::Test qw( test_psgi );
+use HTTP::Request::Common qw( GET POST );
+use HTTP::Message::PSGI ();
 use HTML::Tree;
-use Test::More;
+use Test::More import => [qw( is )];
 use Test::XPath;
-use Try::Tiny;
-use Encode;
+use Try::Tiny qw( catch try );
+use Encode qw( decode_utf8 );
 use Future;
 use MetaCPAN::Web::Test::HTML5::TreeBuilder;
 use base 'Exporter';
@@ -80,11 +80,6 @@ sub tx {
             ->as_XML;
     }
 
-    # A nice alternative to XPath when the full power isn't needed.
-    if ( delete $opts->{css} ) {
-        $opts->{filter} = 'css_selector';
-    }
-
     # Upgrading some library (not sure which) in Sep/Oct 2013 started
     # returning $xml with wide characters (which cases decode to croak).
     try { $xml = decode_utf8($xml) if !Encode::is_utf8($xml); }
@@ -103,11 +98,35 @@ sub tx {
             return $result;
         }
     );
+
+    # contains-token is from XPath 3.1, useful for class matching
+    $tx->xpc->registerFunction(
+        'contains-token',
+        sub {
+            my ( $nodelist, $token ) = @_;
+            my $result = XML::LibXML::NodeList->new;
+
+            s/\A\s+//, s/\s+\z// for $token;
+            if ( length $token ) {
+                for my $node ( $nodelist->get_nodelist ) {
+                    my @tokens = split /\s+/, $node->nodeValue;
+                    if ( grep $_ eq $token, @tokens ) {
+                        $result->push($node);
+                    }
+                }
+            }
+
+            return $result;
+        }
+    );
+
     return $tx;
 }
 
 sub test_cache_headers {
     my ( $res, $conf ) = @_;
+
+    local $Test::Builder::Level = $Test::Builder::Level + 1;
 
     is(
         $res->header('Cache-Control'),

@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 use Test::More;
-use MetaCPAN::Web::Test;
+use MetaCPAN::Web::Test qw( app GET test_cache_headers test_psgi tx );
 
 test_psgi app, sub {
     my $cb = shift;
@@ -31,7 +31,7 @@ test_psgi app, sub {
 
     {
         # Check a URL that is the 'latest', e.g. no version num
-        my $uri = '/source/Moose';
+        my $uri = '/module/Moose/source';
         ok( my $res = $cb->( GET $uri ), "GET $uri" );
         is( $res->code, 200, 'code 200' );
         test_cache_headers(
@@ -45,6 +45,37 @@ test_psgi app, sub {
             }
         );
 
+        # Check the "Raw code" and "Permalink" URLs
+        my @versioned_link_tests = (
+            {
+                xpath    => '//a[text()="Raw code"]/@href',
+                expected => qr{\bfastapi.metacpan.org/},
+                desc     => 'raw code points to fastapi'
+            },
+            {
+                xpath => '//a[text()="Raw code"]/@href',
+                #<<<       Maintainer vvvvv       vvvvvvvvvvvvvvvv Dist version number #>>>
+                expected => qr{source/[^/]+/Moose-\d+(?:\.\d+){0,}/},
+                desc => 'raw code includes specific version'
+            },
+
+            {
+                xpath    => '//a[text()="Permalink"]/@href',
+                expected => qr{\brelease/[^/]+/Moose-\d+(?:\.\d+){0,}/source},
+                desc     => 'Permalink includes specific version'
+            },
+        );
+
+        my $versioned_link_tx = tx($res);
+        foreach my $versioned_link_test (@versioned_link_tests) {
+            like(
+                $versioned_link_tx->find_value(
+                    $versioned_link_test->{xpath}
+                ),
+                $versioned_link_test->{expected},
+                $versioned_link_test->{desc},
+            );
+        }
     }
 
     {
@@ -52,13 +83,13 @@ test_psgi app, sub {
         # different filetypes below.
         my @tests = (
             {
-                uri      => '/source/RJBS/Dist-Zilla-5.043/bin/dzil',
+                uri      => '/release/RJBS/Dist-Zilla-5.043/source/bin/dzil',
                 xpath    => '//div[@class="content"]/pre/code/@class',
                 expected => qr/\blanguage-perl\b/,
                 desc     => 'has pre-block with expected syntax brush',
             },
             {
-                uri      => '/source/ETHER/Moose-2.1005/README.md',
+                uri      => '/release/ETHER/Moose-2.1005/source/README.md',
                 xpath    => '//h1[@id="moose"]',
                 expected => qr/^Moose$/,
                 desc     => 'markdown rendered as HTML',

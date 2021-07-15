@@ -1,6 +1,21 @@
 .content {
+    .release-documentation,
     .release-modules,
     .release-provides {
+        display: table;
+        div.release-row:nth-of-type(even) {
+            background-color: #f5f5f5;
+        }
+        div.release-row {
+            display: table-row;
+            div.left, div.right {
+                display: table-cell;
+            }
+            div.left {
+                font-weight: bold;
+                padding-right: 1em;
+            }
+        }
         .unauthorized {
             color: #f00;
             font-weight: bold;
@@ -29,19 +44,12 @@
 /* Changes in release page
  * See /release/CPAN-Changes for example
  */
-#last-changes {
+#metacpan_last-changes {
     h2:extend(.content .file-group h2) {}
 
     ul {
         padding-left: 20px;
         margin-bottom: 0px;
-    }
-
-    .group-header {
-        margin-bottom: 1em;
-        &:last-child {
-            margin-bottom: 0em;
-        }
     }
 
     ul, ul ul ul {
@@ -51,22 +59,29 @@
         list-style: circle;
     }
 
-    .show-more { display: none }
-    .hide-more { display: inline }
-    &.collapsed {
-        .show-more { display: inline }
-        .hide-more { display: none }
-        #last-changes-container {
-            overflow: hidden;
-            max-height: 20em;
+    &.collapsable {
+        #metacpan_last-changes-toggle {
+            display: inline-block;
+        }
+
+        .show-more { display: none }
+        .hide-more { display: inline }
+        &.collapsed {
+            .show-more { display: inline }
+            .hide-more { display: none }
+
+            #metacpan_last-changes-container {
+                overflow: hidden;
+                max-height: 20.02em;
+            }
         }
     }
 
-    #last-changes-toggle {
+    #metacpan_last-changes-toggle {
         display: none;
     }
 
-    #last-changes-container {
+    #metacpan_last-changes-container {
         margin-bottom: 0.5em;
     }
     padding-bottom: 0.5em;

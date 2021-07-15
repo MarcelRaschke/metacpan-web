@@ -9,14 +9,16 @@ use Encode ();
 use Cpanel::JSON::XS qw( decode_json encode_json );
 use IO::Async::Loop;
 use IO::Async::SSL;
-use IO::Socket::SSL qw(SSL_VERIFY_PEER);
+use IO::Socket::SSL qw( SSL_VERIFY_PEER );
 use Net::Async::HTTP;
-use URI;
+use URI ();
 use URI::QueryParam;
 use MetaCPAN::Web::Types qw( Uri );
 use Try::Tiny qw( catch try );
 use HTTP::Request;
 use HTTP::Request::Common ();
+use URI::Escape qw( uri_escape );
+use Ref::Util qw( is_arrayref );
 
 my $loop;
 
@@ -40,7 +42,7 @@ sub client {
     };
 }
 
-has api_secure => (
+has api => (
     is       => 'ro',
     isa      => Uri,
     coerce   => 1,
@@ -52,23 +54,20 @@ has debug       => ( is => 'ro' );
 has request_uri => ( is => 'ro' );
 has request_id  => ( is => 'ro' );
 
-=head2 COMPONENT
-
-Set C<api_secure> config parameters from the app config object.
-
-=cut
-
 sub COMPONENT {
-    my $self = shift;
-    my ( $app, $config ) = @_;
-    my $args = {
-        %$config,
-        api_secure => $app->config->{api_secure},
-        log        => $app->log,
-        debug      => $app->debug,
-    };
+    my ( $class, $app, $args ) = @_;
 
-    return $self->SUPER::COMPONENT( $app, $args );
+    $args = $class->merge_config_hashes( $class->config, $args );
+    $args = $class->merge_config_hashes(
+        {
+            api   => $app->config->{api},
+            log   => $app->log,
+            debug => $app->debug,
+        },
+        $args
+    );
+
+    return $class->SUPER::COMPONENT( $app, $args );
 }
 
 sub ACCEPT_CONTEXT {
@@ -77,7 +76,11 @@ sub ACCEPT_CONTEXT {
         $self = $self->new(
             %$self,
             request_url => $r->uri,
-            request_id  => $r->env->{'MetaCPAN::Web.request_id'},
+            (
+                $r->env
+                ? ( request_id => $r->env->{'MetaCPAN::Web.request_id'}, )
+                : ()
+            ),
         );
     }
     return $self;
@@ -86,9 +89,13 @@ sub ACCEPT_CONTEXT {
 sub request {
     my ( $self, $path, $search, $params, $method ) = @_;
 
-    my $url = $self->api_secure->clone;
+    my $url = $self->api->clone;
 
     $method ||= $search ? 'POST' : 'GET';
+
+    if ( is_arrayref($path) ) {
+        $path = join '/', map uri_escape($_), @$path;
+    }
 
     # the order of the following 2 lines matters
     # `path_query` is destructive
@@ -116,11 +123,17 @@ sub request {
                 )
             : ()
         ),
-        ( $current_url ? ( 'Referer' => $current_url->as_string ) : () ),
-        ( $request_id ? ( 'X-MetaCPAN-Request-ID' => $request_id ) : () ),
+        ( $current_url ? ( 'Referer' => $current_url->as_string )   : () ),
+        ( $request_id  ? ( 'X-MetaCPAN-Request-ID' => $request_id ) : () ),
     );
 
-    $self->client->do_request( request => $request )->transform(
+    my $req_p = $self->client->do_request( request => $request );
+    $req_p = $req_p->catch( sub {
+
+        # retry once
+        $self->client->do_request( request => $request );
+    } );
+    $req_p->transform(
         done => sub {
             my $response = shift;
             my $logger   = $self->log;

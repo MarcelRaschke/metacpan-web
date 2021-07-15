@@ -17,19 +17,18 @@ sub root : Chained('/') PathPart('author') CaptureArgs(1) {
     # force consistent casing in URLs
     if ( $id ne uc($id) ) {
 
-        # NOTE: This only works as long as we only use CaptureArgs
-        # and end the chain with PathPart('') and Args(0)
-        # (recommended by mst on #catalyst). If we deviate from that
-        # we may have to just do substitution on $req->uri
-        # because $c->req->args won't be what we expect.
-        # Just forget that Args exists (jedi hand wave).
+        $c->browser_max_age('1y');
+        $c->cdn_max_age('1y');
 
-        my $captures = $c->req->captures;
-        $captures->[0] = uc $captures->[0];
+        my @captures = @{ $c->req->captures };
+        $captures[0] = uc $id;
 
         $c->res->redirect(
-            $c->uri_for( $c->action, $captures, $c->req->params ),
-            301,    # Permanent
+            $c->uri_for(
+                $c->action,               \@captures,
+                @{ $c->req->final_args }, $c->req->params,
+            ),
+            301
         );
         $c->detach;
     }
@@ -44,8 +43,10 @@ sub index : Chained('root') PathPart('') Args(0) {
 
     my $pauseid = $c->stash->{pauseid};
 
-    my $author = $c->model('API::Author')->get($pauseid)->get;
-    $c->detach('/not_found') unless ( $author->{pauseid} );
+    my $author_info = $c->model('API::Author')->get($pauseid)->get;
+    $c->detach('/not_found')
+        if $author_info->{code} && $author_info->{code} == 404;
+    my $author = $author_info->{author};
 
     my $releases = $c->model('API::Release')->latest_by_author($pauseid)->get;
 
@@ -56,15 +57,18 @@ sub index : Chained('root') PathPart('') Args(0) {
 
     my $faves = $c->model('API::Favorite')->by_user( $author->{user} )->get;
 
+    my $profiles = $c->model('API::Author')->profile_data;
+
     my $took = $releases->{took};
 
     $c->stash( {
         author   => $author,
         faves    => $faves,
         releases => $releases->{releases},
-        template => 'author.html',
+        profiles => $profiles,
         took     => $took,
         total    => $releases->{total},
+        template => 'author.tx',
     } );
 
     $c->stash( author_country_name =>
@@ -80,30 +84,33 @@ sub releases : Chained('root') PathPart Args(0) {
     my $id        = $c->stash->{pauseid};
     my $page_size = $req->get_page_size(100);
 
-    my $page      = $req->page > 0 ? $req->page : 1;
+    my $page      = $req->page;
     my $author_cv = $c->model('API::Author')->get($id);
     my $releases
         = $c->model('API::Release')->all_by_author( $id, $page_size, $page )
         ->get;
 
-    my $author = $author_cv->get;
-    $c->detach('/not_found') unless ( $author->{pauseid} );
-
-    $c->stash( {
-        author    => $author,
-        page_size => $page_size,
-        releases  => $releases->{releases},
-    } );
-
-    return unless $releases->{total};
+    my $author_info = $author_cv->get;
+    $c->detach('/not_found')
+        if $author_info->{code} && $author_info->{code} == 404;
 
     my $pageset = Data::Pageset->new( {
         current_page     => $page,
         entries_per_page => $page_size,
         mode             => 'slide',
         pages_per_set    => 10,
-        total_entries    => $releases->{total},
+        total_entries    => $releases->{total} // 0,
     } );
+
+    $c->stash( {
+        author   => $author_info->{author},
+        total    => $releases->{total},
+        releases => $releases->{releases},
+        pageset  => $pageset,
+    } );
+
+    return unless $releases->{total};
+
     $c->stash( { pageset => $pageset } );
 }
 

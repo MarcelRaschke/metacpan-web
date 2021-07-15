@@ -1,62 +1,50 @@
 package MetaCPAN::Web::Controller::Release;
 
 use Moose;
-use Future;
-
 use namespace::autoclean;
+use experimental 'postderef';
+use Future;
 
 BEGIN { extends 'MetaCPAN::Web::Controller' }
 
-sub root : Chained('/') PathPart('release') CaptureArgs(0) {
-    my ( $self, $c ) = @_;
-
-    $c->stash->{current_model_instance}
-        = $c->model( 'ReleaseInfo', full_details => 1 );
-}
-
-sub by_distribution : Chained('root') PathPart('') Args(1) {
-    my ( $self, $c, $distribution ) = @_;
-
-    $c->stash( release_info => $c->model->find($distribution) );
-    $c->forward('view');
-}
-
-sub index : Chained('/') PathPart('release') CaptureArgs(1) {
-    my ( $self, $c, $distribution ) = @_;
-    $c->stash( distribution => $distribution );
-}
-
-sub plusser_display : Chained('index') PathPart('plussers') Args(0) {
-    my ( $self, $c ) = @_;
-    my $dist = $c->stash->{distribution};
-    $c->stash( $c->model('API::Favorite')->find_plussers($dist)->get );
-    $c->stash( { template => 'plussers.html' } );
-}
-
-sub by_author_and_release : Chained('root') PathPart('') Args(2) {
+sub root : Chained('/') PathPart('release') CaptureArgs(2) {
     my ( $self, $c, $author, $release ) = @_;
 
     # force consistent casing in URLs
     if ( $author ne uc($author) ) {
+
+        $c->browser_max_age('1y');
+        $c->cdn_max_age('1y');
+
+        my @captures = @{ $c->req->captures };
+        $captures[0] = uc $author;
+
         $c->res->redirect(
-            $c->uri_for_action( $c->action, uc($author), $release ), 301 );
-        $c->detach();
+            $c->uri_for(
+                $c->action,               \@captures,
+                @{ $c->req->final_args }, $c->req->params,
+            ),
+            301
+        );
+        $c->detach;
     }
+
+    $c->stash( {
+        author_name  => $author,
+        release_name => $release,
+    } );
+}
+
+sub release_view : Chained('root') PathPart('') Args(0) {
+    my ( $self,   $c )       = @_;
+    my ( $author, $release ) = $c->stash->@{qw(author_name release_name)};
 
     $c->stash(
         permalinks   => 1,
-        release_info => $c->model->get( $author, $release ),
+        release_info => $c->model( 'ReleaseInfo', full_details => 1 )
+            ->get( $author, $release ),
     );
     $c->forward('view');
-}
-
-sub source : Chained('index') PathPart('source') Args {
-    my ( $self, $c, @path ) = @_;
-    my $dist    = $c->stash->{distribution};
-    my $release = $c->model('API::Release')->find($dist)->get->{release}
-        or $c->detach('/not_found');
-    $c->forward( '/source/index',
-        [ $release->{author}, $release->{name}, @path ] );
 }
 
 sub view : Private {
@@ -91,7 +79,7 @@ sub view : Private {
         %$categories,
         changes => \@changes,
 
-        template => 'release.html',
+        template => 'release.tx',
 
         # TODO: Put this in a more general place.
         # Maybe make a hash for feature flags?
@@ -154,15 +142,14 @@ sub _files_to_categories {
                 $s{ $f->{documentation} }++;
             }
 
-            push @{ $ret->{provides} },
-                grep !$s{ $_->{module_name} }++, map {
+            push @{ $ret->{provides} }, grep !$s{ $_->{module_name} }++, map {
                 ;
                 my $entry = {%$f};
                 my $m     = $_;
                 $entry->{ $module_field_map{$_} } = $m->{$_}
                     for grep exists $m->{$_}, keys %module_field_map;
                 $entry;
-                } @modules;
+            } @modules;
         }
         elsif ( $f->{documentation} && $path =~ m/\.pm$/ ) {
             push @{ $ret->{modules} }, $f;

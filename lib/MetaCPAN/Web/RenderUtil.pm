@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use Sub::Exporter -setup => { exports => [qw(filter_html)], };
 
-use HTML::Escape qw(escape_html);
+use HTML::Escape qw( escape_html );
 use HTML::Restrict ();
 use URI            ();
 
@@ -47,8 +47,8 @@ sub filter_html {
             sup    => [],
             table  => [ qw( border cellspacing cellpadding align ), ],
             tbody  => [],
-            th     => [],
-            td     => [],
+            th     => [qw( colspan rowspan )],
+            td     => [qw( colspan rowspan )],
             tr     => [],
             u      => [],
             ul     => [ { id => qr/^index$/ } ],
@@ -80,7 +80,7 @@ sub filter_html {
             rect => [qw(id height style transform x y width)],
             stop => [qw(id offset style)],
             svg  => [ qw(id height preserveaspectratio version viewbox
-            width xmlns xmlns:xlink) ],
+                width xmlns xmlns:xlink) ],
             title => [qw(id style)],
             use   => [qw(id height transform width x xlink xlink:href y)],
         },

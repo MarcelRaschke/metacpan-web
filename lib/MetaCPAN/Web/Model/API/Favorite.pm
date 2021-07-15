@@ -4,21 +4,19 @@ use namespace::autoclean;
 
 extends 'MetaCPAN::Web::Model::API';
 
-use List::Util qw(uniq);
 use Future;
 
-sub get {
-    my ( $self, $user, @distributions ) = @_;
-    @distributions = uniq @distributions;
-
-    # If there are no distributions this will build a query with an empty
-    # filter and ES will return a parser error... so just skip it.
-    if ( !@distributions ) {
-        return Future->wrap( {} );
-    }
+sub by_dist {
+    my ( $self, $dist ) = @_;
 
     return $self->request( '/favorite/agg_by_distributions',
-        { user => $user, distribution => \@distributions } );
+        { distribution => $dist } )->then( sub {
+        my $data = shift;
+        Future->done( {
+            favorites => $data->{favorites}{$dist},
+            took      => $data->{took},
+        } );
+        } );
 }
 
 sub by_user {
@@ -39,11 +37,11 @@ sub by_user {
 
 sub recent {
     my ( $self, $page, $page_size ) = @_;
-    $self->request( '/favorite/recent',
+    $self->request( '/favorite/recent', undef,
         { size => $page_size, page => $page } )->then( sub {
         my $data     = shift;
         my @user_ids = map { $_->{user} } @{ $data->{favorites} };
-        return Future->done unless @user_ids;
+        return Future->done($data) unless @user_ids;
         $self->request( '/author/by_user', undef, { user => \@user_ids } )
             ->transform(
             done => sub {
@@ -79,13 +77,31 @@ sub find_plussers {
         my $plusser_data = shift;
         my @plusser_users
             = $plusser_data->{users} ? @{ $plusser_data->{users} } : ();
+        my $took = $plusser_data->{took} || 0;
 
+        return Future->done( {
+            plussers => {
+                authors      => [],
+                others       => 0,
+                distribution => $distribution,
+            },
+            took => 0,
+        } )
+            if !keys %$plusser_data;
         $self->get_plusser_authors( \@plusser_users )->then( sub {
-            my @plusser_authors = @{ +shift };
+            my $plusser_user_data = shift;
+
+            $took += $plusser_user_data->{took};
+            my $other_count = @plusser_users - $plusser_user_data->{total};
+            my $authors     = $plusser_user_data->{authors};
+
             return Future->done( {
-                plusser_authors => \@plusser_authors,
-                plusser_others => scalar( @plusser_users - @plusser_authors ),
-                plusser_data   => $distribution
+                plussers => {
+                    authors      => $authors,
+                    others       => $other_count,
+                    distribution => $distribution,
+                },
+                took => $took,
             } );
         } );
         } );
@@ -95,12 +111,7 @@ sub get_plusser_authors {
     my ( $self, $users ) = @_;
     return Future->done( [] ) unless $users and @{$users};
 
-    $self->request( '/author/by_user', { user => $users } )->transform(
-        done => sub {
-            my $res = shift;
-            return $res->{authors} || [];
-        }
-    );
+    $self->request( '/author/by_user', { user => $users } );
 }
 
 __PACKAGE__->meta->make_immutable;

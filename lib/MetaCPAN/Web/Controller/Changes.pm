@@ -2,24 +2,20 @@ package MetaCPAN::Web::Controller::Changes;
 
 use Moose;
 use namespace::autoclean;
+use experimental 'postderef';
 
 BEGIN { extends 'MetaCPAN::Web::Controller' }
 
-sub distribution : Local Args(1) {
-    my ( $self, $c, $distribution ) = @_;
+sub distribution : Chained('/dist/root') PathPart('changes') Args(0) {
+    my ( $self, $c ) = @_;
+    my $dist = $c->stash->{distribution_name};
 
-    $c->forward( 'get', [$distribution] );
+    $c->forward( 'get', [$dist] );
 }
 
-sub release : Local Args(2) {
-    my ( $self, $c, $author, $release ) = @_;
-
-    # force consistent casing in URLs
-    if ( $author ne uc($author) ) {
-        $c->res->redirect(
-            $c->uri_for( $c->action, [ uc($author), $release ] ), 301 );
-        $c->detach();
-    }
+sub release : Chained('/release/root') PathPart('changes') Args(0) {
+    my ( $self,   $c )       = @_;
+    my ( $author, $release ) = $c->stash->@{qw(author_name release_name)};
 
     $c->forward( 'get', [ $author, $release ] );
 }
@@ -39,7 +35,9 @@ sub get : Private {
             description => 'Try the release info page',
 
             # Is there a more Catalyst way to do this?
-            url       => $c->uri_for( '/release/' . $release ),
+            url => $c->uri_for(
+                ( @args == 1 ? '/dist/' : '/release/' ) . $release
+            ),
             link_text => $release,
         };
 
@@ -54,7 +52,14 @@ sub get : Private {
     elsif ( $file->{documentation} ) {
 
         # Is there a better way to reuse the pod view?
-        $c->forward( '/pod/release', [ @$file{qw( author release path )} ] );
+        $c->forward(
+            (
+                $c->{stash}->{distribution_name}
+                ? '/view/dist'
+                : '/view/release'
+            ),
+            [ $file->{path} ]
+        );
     }
     else {
         $c->stash( { file => $file } );

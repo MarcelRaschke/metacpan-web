@@ -6,25 +6,29 @@ use namespace::autoclean;
 BEGIN { extends 'MetaCPAN::Web::Controller' }
 
 use DateTime::Format::ISO8601 ();
-use HTML::Escape qw/escape_html/;
-use MetaCPAN::Web::Types qw( ArrayRef HashRef Str Uri Enum Undef );
+use HTML::Escape qw( escape_html );
+use MetaCPAN::Web::Types qw( ArrayRef Enum HashRef Str Undef Uri );
 use Params::ValidationCompiler qw( validation_for );
-use Path::Tiny qw/path/;
-use Text::Markdown qw/markdown/;
-use XML::Feed               ();
-use XML::Feed::Format::RSS  ();
-use XML::Feed::Format::Atom ();
-use XML::RSS                ();
+use Path::Tiny qw( path );
+use Text::MultiMarkdown qw( markdown );
+use XML::FeedPP ();
 
-sub feed_index : PathPart('feed') : Chained('/') : CaptureArgs(0) {
+sub recent_rss : Path('/recent.rss') Args(0) {
     my ( $self, $c ) = @_;
+    $c->detach( 'recent', ['rss'] );
 }
 
-sub recent : Chained('feed_index') PathPart Args(0) {
+sub recent_atom : Path('/recent.atom') Args(0) {
     my ( $self, $c ) = @_;
+    $c->detach( 'recent', ['atom'] );
+}
+
+sub recent : Private {
+    my ( $self, $c, $type ) = @_;
 
     # Set surrogate key and ttl from here as well
     $c->forward('/recent/index');
+    die join "\n", @{ $c->error } if @{ $c->error };
 
     my %changes_index;
 
@@ -49,15 +53,25 @@ sub recent : Chained('feed_index') PathPart Args(0) {
     }
 
     $c->stash->{feed} = $self->build_feed(
-        format  => $c->req->params->{'type'},
+        format  => $type,
         entries => $c->stash->{recent},
         host    => URI->new( $c->config->{web_host} ),
         title   => 'Recent CPAN uploads - MetaCPAN',
     );
 }
 
-sub news : Local : Args(0) {
+sub news_rss : Path('/news.rss') Args(0) {
     my ( $self, $c ) = @_;
+    $c->detach( 'news', ['rss'] );
+}
+
+sub news_atom : Path('/news.atom') Args(0) {
+    my ( $self, $c ) = @_;
+    $c->detach( 'news', ['atom'] );
+}
+
+sub news : Private {
+    my ( $self, $c, $type ) = @_;
 
     $c->add_surrogate_key('NEWS');
     $c->browser_max_age('1h');
@@ -81,7 +95,7 @@ sub news : Local : Args(0) {
 
         $str =~ s/\A\s*-+//g;
         $e{date} = $str =~ s/^Date:\s*(.*)$//m ? $1 : '2014-01-01T00:00:00';
-        $e{link} = '/news';
+        $e{link}     = '/news';
         $e{fragment} = $a_name;
         $e{author}   = 'METACPAN';
         $str =~ s/^\s*|\s*$//g;
@@ -94,37 +108,28 @@ sub news : Local : Args(0) {
     }
 
     $c->stash->{feed} = $self->build_feed(
-        format  => $c->req->params->{'type'},
+        format  => $type,
         entries => \@entries,
         host    => $c->config->{web_host},
         title   => 'Recent MetaCPAN News',
     );
 }
 
-sub author : Local : Args(1) {
-    my ( $self, $c, $author ) = @_;
+sub author_rss : Chained('/author/root') PathPart('activity.rss') Args(0) {
+    $_[1]->detach( 'author', ['rss'] );
+}
 
-    # Redirect to this same action with uppercase author.
-    if ( $author ne uc($author) ) {
+sub author_atom : Chained('/author/root') PathPart('activity.atom') Args(0) {
+    $_[1]->detach( 'author', ['atom'] );
+}
 
-        $c->browser_max_age('7d');
-        $c->cdn_max_age('1y');
-        $c->add_surrogate_key('REDIRECT_FEED');
+sub author : Private {
+    my ( $self, $c, $type ) = @_;
 
-        $c->res->redirect(
-
-            # NOTE: We're using Args here instead of CaptureArgs :-(.
-            $c->uri_for(
-                $c->action,  $c->req->captures,
-                uc($author), $c->req->params
-            ),
-            301,    # Permanent
-        );
-    }
+    my $author = $c->stash->{pauseid};
 
     $c->browser_max_age('1h');
     $c->cdn_max_age('1y');
-    $c->add_author_key($author);
 
     my $author_info = $c->model('API::Author')->get($author)->get;
 
@@ -136,13 +141,14 @@ sub author : Local : Args(1) {
         $c->detach( '/not_found', [] );
     }
 
+    my $user = $author_info->{author}->{user};
+
     my $releases = $c->model('API::Release')->latest_by_author($author)->get;
 
-    my $faves
-        = $c->model('API::Favorite')->by_user( $author_info->{user} )->get;
+    my $faves = $c->model('API::Favorite')->by_user($user)->get;
 
     $c->stash->{feed} = $self->build_feed(
-        format  => $c->req->params->{'type'},
+        format  => $type,
         host    => $c->config->{web_host},
         title   => "Recent CPAN activity of $author - MetaCPAN",
         entries => [
@@ -153,20 +159,29 @@ sub author : Local : Args(1) {
     );
 }
 
-sub distribution : Local : Args(1) {
-    my ( $self, $c, $distribution ) = @_;
+sub dist_rss : Chained('/dist/root') PathPart('releases.rss') Args(0) {
+    $_[1]->detach( 'dist', ['rss'] );
+}
+
+sub dist_atom : Chained('/dist/root') PathPart('releases.atom') Args(0) {
+    $_[1]->detach( 'dist', ['atom'] );
+}
+
+sub dist : Private {
+    my ( $self, $c ) = @_;
+    my $dist = $c->stash->{distribution_name};
 
     $c->browser_max_age('1h');
     $c->cdn_max_age('1y');
-    $c->add_dist_key($distribution);
+    $c->add_dist_key($dist);
 
-    my $data = $c->model('API::Release')->versions($distribution)->get;
+    my $data = $c->model('API::Release')->versions($dist)->get;
 
     $c->stash->{feed} = $self->build_feed(
         format  => $c->req->params->{'type'},
         host    => $c->config->{web_host},
-        title   => "Recent CPAN uploads of $distribution - MetaCPAN",
-        entries => $data->{releases},
+        title   => "Recent CPAN uploads of $dist - MetaCPAN",
+        entries => $data->{versions},
     );
 }
 
@@ -186,7 +201,7 @@ my $feed_check = validation_for(
 sub build_entry {
     my ( $self, %args ) = @_;
     my $entry = $args{entry};
-    my $e     = XML::Feed::Entry->new( $args{format} );
+    my $e     = $args{class}->new;
 
     my $link = $args{host}->clone;
     $link->path( $entry->{link}
@@ -195,13 +210,14 @@ sub build_entry {
     $e->link( $link->as_string );
 
     $e->author( $entry->{author} );
-    $e->issued( DateTime::Format::ISO8601->parse_datetime( $entry->{date} ) );
+    $e->pubDate( $entry->{date} );
     $e->title( $entry->{name} );
 
+    my $content = escape_html( $entry->{abstract} // '' );
+
     if ( my $changelog = $entry->{changes} ) {
-        my $content;
-        if ( $entry->{abstract} ) {
-            $content = '<p>' . escape_html( $entry->{abstract} ) . '</p>';
+        if ($content) {
+            $content = "<p>$content</p>";
         }
         $content .= '<p>Changes for ' . escape_html( $changelog->{version} );
         if ( $changelog->{date} ) {
@@ -212,15 +228,9 @@ sub build_entry {
             $content .= '<li>' . escape_html( $entry->{text} ) . "</li>\n";
         }
         $content .= '</ul>';
-        $e->summary($content);
     }
-    else {
-        $e->summary( escape_html( $entry->{abstract} ) );
-    }
+    $e->description($content);
 
-    # this is a hack to work around RT#124346
-    delete $e->{entry}{content}
-        if $e->isa('XML::Feed::Entry::Format::RSS');
     return $e;
 }
 
@@ -228,20 +238,23 @@ sub build_feed {
     my $self   = shift;
     my %params = $feed_check->(@_);
 
-    my ($format) = my @args
-        = $params{format} eq 'rdf' ? ( 'RSS', version => '1.0' )
-        : $params{format} eq 'rss' ? ( 'RSS', version => '2.0' )
-        : $params{format} eq 'atom' ? ('Atom')
-        :                             ();
-    my $feed = XML::Feed->new(@args);
+    my $format
+        = $params{format} eq 'rdf'  ? 'RDF'
+        : $params{format} eq 'rss'  ? 'RSS'
+        : $params{format} eq 'atom' ? 'Atom::Atom10'
+        :                             die "invalid format";
+
+    my $feed_class = "XML::FeedPP::$format";
+
+    my $feed = $feed_class->new;
     $feed->title( $params{title} );
     $feed->link('/');
 
     foreach my $entry ( @{ $params{entries} } ) {
-        $feed->add_entry( $self->build_entry(
-            entry  => $entry,
-            host   => $params{host},
-            format => $format,
+        $feed->add_item( $self->build_entry(
+            class => $feed->item_class,
+            entry => $entry,
+            host  => $params{host},
         ) );
     }
     return $feed;
@@ -279,11 +292,11 @@ sub end : Private {
     $c->detach('/end')
         if !$feed;
     $c->res->content_type(
-        $feed->format eq 'Atom'
+        $feed->isa('XML::FeedPP::Atom')
         ? 'application/atom+xml; charset=UTF-8'
         : 'application/rss+xml; charset=UTF-8'
     );
-    $c->res->body( $feed->as_xml );
+    $c->res->body( $feed->to_string( indent => 2 ) );
 }
 
 __PACKAGE__->meta->make_immutable;

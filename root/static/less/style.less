@@ -1,5 +1,39 @@
-@import "bootstrap/bootstrap.less";
-@import "font-awesome/fontawesome.less";
+@import "../modules/bootstrap-v3.4.1/less/bootstrap.less";
+@import "../modules/fontawesome-5.15.3/less/fontawesome.less";
+@import "../modules/fontawesome-5.15.3/less/regular.less";
+@import "../modules/fontawesome-5.15.3/less/solid.less";
+@import "../modules/fontawesome-5.15.3/less/brands.less";
+
+@black: #000000;
+@linkColor: #3366cc;
+@textColor: @black;
+
+@navbarBackground: rgb(245,245,245);
+@navbarBackgroundHighlight: rgb(255,255,255);
+@navbarText: @linkColor;
+@navbarLinkColor: @linkColor;
+@navbarHeight: 29px;
+@gridGutterWidth: 10px;
+@navbar-default-link-color: @linkColor;
+@input-border-radius: none;
+@modal-md: 722px;
+@grid-float-breakpoint: 0;
+@screen-xs-max: @screen-xs;
+@screen-sm-min: (@screen-xs + 1);
+
+@code-color:                  inherit;
+@code-bg:                     #f5f5f5;
+
+@font-family-monospace: Menlo, Monaco, Consolas, 'Liberation Mono', 'Bitstream Vera Sans Mono', Courier, 'Courier New', monospace;
+@font-size-base: 15px;
+
+@fa-font-path: "/static/modules/fontawesome-5.15.3/webfonts";
+@icon-font-path: "/static/modules/bootstrap-v3.4.1/fonts";
+
+@state-info-text:             #4083a3;
+@state-info-border:           @state-info-text;
+
+@sidebar-width: floor((@font-size-base * 13.5));
 
 @import "global.less";
 @import "about.less";
@@ -12,7 +46,6 @@
 @import "author.less";
 @import "breadcrumbs.less";
 @import "log.less";
-@import "mirrors.less";
 @import "plusser.less";
 @import "pod.less";
 @import "release.less";
@@ -26,34 +59,5 @@
 @import "lab.less";
 @import "home.less";
 @import "syntaxhighlighter.less";
-@import "login.less";
 @import "pod2html.less";
 @import "notification.less";
-
-@linkColor: #3366cc;
-@textColor: @black;
-
-@navbarBackground: rgb(245,245,245);
-@navbarBackgroundHighlight: rgb(255,255,255);
-@navbarText: @linkColor;
-@navbarLinkColor: @linkColor;
-@navbarHeight: 29px;
-@gridGutterWidth: 10px;
-@navbar-default-link-color: @linkColor;
-@input-border-radius: none;
-@modal-md: 722px;
-@custom-grid-float-breakpoint: 0;
-@screen-xs-max: @screen-xs;
-@screen-sm-min: (@screen-xs + 1);
-
-@code-color:                  inherit;
-@code-bg:                     #f5f5f5;
-
-@font-family-monospace: Menlo, Monaco, 'DejaVu Sans Mono', Consolas, 'Bitstream Vera Sans Mono', Courier, 'Courier New', monospace;
-@font-size-base: 13px;
-
-@fa-font-path: "/static/fonts/";
-@icon-font-path: "/static/fonts/";
-
-@state-info-text:             #4083a3;
-@state-info-border:           @state-info-text;

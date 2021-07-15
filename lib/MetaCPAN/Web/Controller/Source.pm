@@ -2,10 +2,33 @@ package MetaCPAN::Web::Controller::Source;
 
 use Moose;
 use namespace::autoclean;
+use experimental 'postderef';
 
 BEGIN { extends 'MetaCPAN::Web::Controller' }
 
-sub index : Path : Args {
+sub module : Chained('/module/root') PathPart('source') Args(0) {
+    my ( $self, $c ) = @_;
+    my $module = $c->stash->{module_name};
+
+    $c->forward( 'view', [$module] );
+}
+
+sub release : Chained('/release/root') PathPart('source') Args {
+    my ( $self, $c, @path ) = @_;
+    my ( $author, $release ) = $c->stash->@{qw(author_name release_name)};
+
+    $c->forward( 'view', [ $author, $release, @path ] );
+}
+
+sub dist : Chained('/dist/root') PathPart('source') Args {
+    my ( $self, $c, @path ) = @_;
+    my $dist    = $c->stash->{distribution_name};
+    my $release = $c->model('API::Release')->find($dist)->get->{release}
+        or $c->detach('/not_found');
+    $c->forward( 'view', [ $release->{author}, $release->{name}, @path ] );
+}
+
+sub view : Private {
     my ( $self, $c, @module ) = @_;
 
     if ( $c->req->params->{raw} ) {
@@ -26,23 +49,29 @@ sub index : Path : Args {
             $c->model('API::Module')->get(@module),
         );
     }
+
+    $c->detach('/not_found')
+        if grep +( $_->{code} || 0 ) > 399, $source, $module;
+
     if ( $module->{directory} ) {
         my $files = $c->model('API::File')->dir(@module)->get;
 
         $self->add_cache_headers( $c, $module );
 
         $c->stash( {
-            template  => 'browse.html',
             files     => $files,
             author    => shift @module,
             release   => shift @module,
             directory => \@module,
+            maturity  => $module->{maturity},
+            template  => 'browse.tx',
         } );
     }
     elsif ( exists $source->{raw} ) {
         $module->{content} = $source->{raw};
         $c->stash( {
-            file => $module,
+            file     => $module,
+            maturity => $module->{maturity},
         } );
         $c->forward('content');
     }
@@ -59,9 +88,8 @@ sub raw : Private {
         @module = @{$module}{qw(author release path)};
     }
 
-    $c->res->redirect( $c->config->{api_external_secure}
-            . '/source/'
-            . join( '/', @module ) );
+    $c->res->redirect(
+        $c->view->api_public . '/source/' . join( '/', @module ) );
     $c->detach;
 }
 
@@ -93,7 +121,7 @@ sub content : Private {
     $c->res->last_modified( $file->{date} );
     $c->stash( {
         file                => $file,
-        template            => 'source.html',
+        template            => 'source.tx',
         suppress_stickeryou => 1,
     } );
 }

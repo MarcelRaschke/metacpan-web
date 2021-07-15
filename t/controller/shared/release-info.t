@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 use Test::More 0.96;
-use MetaCPAN::Web::Test;
+use MetaCPAN::Web::Test qw( app GET test_psgi tx );
 
 use Module::Runtime qw( use_module );
 
@@ -89,7 +89,7 @@ test_psgi app, sub {
             my $name = $test->{$type};
             $current = { desc => "$type $name", test => $test };
 
-            my $req_uri = $type eq 'module' ? "/pod/$name" : "/release/$name";
+            my $req_uri = $type eq 'module' ? "/pod/$name" : "/dist/$name";
 
             ok( my $res = $cb->( GET $req_uri ), "GET $req_uri" );
             is( $res->code, 200, 'code 200' );
@@ -176,7 +176,7 @@ test_psgi app, sub {
             $tx->like(
 
                 # "go to" option has no value attr
-                '//select[@name="release"]/option[@value][1]',
+                q[//*[contains-token(@class, 'version-jump')]//select/option[@value][1]],
                 qr/\([A-Z]{3,9} on \d{4}-\d{2}-\d{2}\)$/,
                 'version ends with pause id and date  in common format'
             );
@@ -185,18 +185,18 @@ test_psgi app, sub {
             # TODO: search
             # TODO: toggle table of contents (module only)
 
-            my $revdep = $type eq 'module' ? 'module' : 'distribution';
+            my $revdep = $type eq 'module' ? 'module' : 'dist';
             ok(
                 $tx->find_value(
-                    "//a[starts-with(\@href, \"/requires/$revdep/$name?\")]"),
+                    "//a[starts-with(\@href, \"/$revdep/$name/requires\")]"),
                 "reverse deps link uses $revdep name"
             );
 
             $tx->like(
                 '//a[starts-with(@href, "https://explorer.metacpan.org/?url")]/@href',
                 $type eq 'module'
-                ? qr!\?url=/module/\w+/${qs_dist}-${version}/.+!
-                : qr!\?url=/release/\w+/${qs_dist}-${version}\z!,
+                ? qr!\?url=%2Fmodule%2F\w+%2F${qs_dist}-${version}%2F.+!
+                : qr!\?url=%2Frelease%2F\w+%2F${qs_dist}-${version}\z!,
                 'explorer link points to module file or release',
             );
 

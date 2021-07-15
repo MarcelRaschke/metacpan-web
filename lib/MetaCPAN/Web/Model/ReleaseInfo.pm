@@ -7,13 +7,14 @@ use MetaCPAN::Moose;
 extends 'Catalyst::Model';
 
 use List::Util qw( all max );
-use Ref::Util qw( is_hashref is_arrayref );
+use Ref::Util qw( is_hashref );
 use URI ();
-use URI::Escape qw(uri_escape uri_unescape);
+use URI::Escape qw( uri_escape uri_unescape );
 use URI::QueryParam;    # Add methods to URI.
 use Future;
 
 my %models = (
+    _distribution => 'API::Distribution',
     _release      => 'API::Release',
     _author       => 'API::Author',
     _contributors => 'API::Contributors',
@@ -47,9 +48,7 @@ sub find {
         $self->_wrap(
             release => $data,
             %dist_data,
-            permission => $self->_permission->get(
-                'module', $data->{release}{main_module}
-            ),
+            notification => $self->_get_notifications( $data->{release} ),
             $self->_release_data(
                 $data->{release}{author},
                 $data->{release}{name}
@@ -59,7 +58,7 @@ sub find {
 }
 
 sub get {
-    my ( $self, $author, $release_name, $module_name ) = @_;
+    my ( $self, $author, $release_name, $module_info ) = @_;
     my $release      = $self->_release->get( $author, $release_name );
     my %release_data = $self->_release_data( $author, $release_name );
     $release->then( sub {
@@ -71,9 +70,8 @@ sub get {
         $self->_wrap(
             release => $data,
             %release_data,
-            permission => $self->_permission->get(
-                'module', $module_name || $data->{release}{main_module}
-            ),
+            notification =>
+                $self->_get_notifications( $data->{release}, $module_info ),
             $self->_dist_data( $data->{release}{distribution} ),
         );
     } )->then( $self->normalize );
@@ -95,12 +93,13 @@ sub _wrap {
 
 sub _dist_data {
     my ( $self, $dist ) = @_;
+
     return (
-        favorites    => $self->_favorite->get( undef, $dist ),
+        favorites    => $self->_favorite->by_dist($dist),
         plussers     => $self->_favorite->find_plussers($dist),
         rating       => $self->_rating->get($dist),
         versions     => $self->_release->versions($dist),
-        distribution => $self->_release->distribution($dist),
+        distribution => $self->_distribution->get($dist),
     );
 }
 
@@ -109,7 +108,7 @@ sub _release_data {
     return (
         author       => $self->_author->get($author),
         contributors => $self->_contributors->get( $author, $release ),
-        coverage     => $self->_release->coverage($release),
+        coverage     => $self->_release->coverage( $author, $release ),
         (
             $self->full_details
             ? (
@@ -130,7 +129,7 @@ sub normalize {
     my $self = shift;
     sub {
         my $data = shift;
-        my $dist = $data->{release}{release}{distribution};
+
         Future->done( {
             took => max(
                 grep defined,
@@ -138,27 +137,27 @@ sub normalize {
                 grep is_hashref($_),
                 values %$data
             ),
-            notification => $self->normalize_notification_type($data),
-            coverage     => $data->{coverage},
+            notification => $data->{notification}{notification},
+            coverage     => $data->{coverage}{coverage},
             release      => $data->{release}{release},
-            favorites    => $data->{favorites}{favorites}{$dist},
-            rating       => $data->{rating}{distributions}{$dist},
-            versions     => $data->{versions}{releases},
-            distribution => $data->{distribution},
-            author       => $data->{author},
-            contributors => $data->{contributors},
+            favorites    => $data->{favorites}{favorites},
+            rating       => $data->{rating}{rating},
+            versions     => $data->{versions}{versions},
+            distribution => $data->{distribution}{distribution},
+            author       => $data->{author}{author},
+            contributors => $data->{contributors}{contributors},
             irc          => $self->groom_irc( $data->{release}{release} ),
             issues       => $self->normalize_issues(
                 $data->{release}{release},
-                $data->{distribution}
+                $data->{distribution}{distribution}
             ),
-            %{ $data->{plussers} },
+            plussers => $data->{plussers}{plussers},
             (
                 $self->full_details
                 ? (
                     files   => $data->{files}{files},
-                    modules => $data->{modules}{files},
-                    changes => $data->{changes},
+                    modules => $data->{modules}{modules},
+                    changes => $data->{changes}{changes},
                     )
                 : ()
             ),
@@ -280,30 +279,27 @@ sub normalize_issue_url {
     return $url;
 }
 
-sub normalize_notification_type {
-    my ( $self, $data ) = @_;
-    if ( is_hashref($data) ) {
-        if ( is_hashref( $data->{permission} ) ) {
-            my %special = (
-                NEEDHELP => 1,
-                ADOPTME  => 1,
-                HANDOFF  => 1
-            );
-            if ( defined $data->{permission}{owner}
-                && exists $special{ $data->{permission}{owner} } )
-            {
-                return $data->{permission}{owner};
+sub _get_notifications {
+    my ( $self, $release, $module ) = @_;
+    return $self->_permission->get_notification_info(
+        $release->{main_module} )->then( sub {
+        my $data = shift;
+
+        # Unless we already have Notifications from Permissions, see if there
+        # are others needing to be added.
+        unless ( $data->{notification} ) {
+            if ( $release->{deprecated} ) {
+                $data->{notification} = { type => 'DEPRECATED' };
             }
-            elsif ( is_arrayref( $data->{permission}{co_maintainers} ) ) {
-                for ( reverse @{ $data->{permission}{co_maintainers} } ) {
-                    if ( exists $special{$_} ) {
-                        return $_;
-                    }
-                }
+            elsif ( $module && $module->{deprecated} ) {
+                $data->{notification} = { type => 'MODULE_DEPRECATED' };
             }
         }
-    }
-    return 0;
+
+        # Return the Notifications (either Permission based, or for Deprecated
+        # status).
+        return Future->wrap($data);
+        } );
 }
 
 __PACKAGE__->meta->make_immutable;

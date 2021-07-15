@@ -8,21 +8,43 @@ BEGIN { extends 'MetaCPAN::Web::Controller' }
 sub auto : Private {
     my ( $self, $c ) = @_;
 
-    $c->cdn_never_cache(1);
+    $c->res->header( 'Vary', 'Cookie' );
 
-    if ( my $token = $c->token ) {
-        $c->authenticate( { token => $token } );
+    my $attrib = $c->action->attributes;
+    my $auth   = $attrib->{Auth} && $attrib->{Auth}[0] // 1;
+    if ( my $user = $c->user ) {
+        $c->cdn_never_cache(1);
+
+        if ( my $user_id = $user->id ) {
+            $c->add_surrogate_key("user/$user_id");
+        }
+        $c->stash( { user => $user } );
     }
-    unless ( $c->user_exists ) {
+    elsif ($auth) {
         $c->forward('/forbidden');
+        return 0;
     }
-    return $c->user_exists;
+    return 1;
+}
+
+sub login_status : Local : Args(0) : Auth(0) {
+    my ( $self, $c ) = @_;
+    $c->stash( { current_view => 'JSON' } );
+
+    if ( $c->user ) {
+        $c->stash->{json}{logged_in} = \1;
+        $c->forward('/account/favorite/list_as_json');
+    }
+    else {
+        $c->stash->{json}{logged_in} = \0;
+        $c->cdn_max_age('30d');
+    }
 }
 
 sub logout : Local : Args(0) {
     my ( $self, $c ) = @_;
     $c->detach('/forbidden') unless ( $c->req->method eq 'POST' );
-    $c->req->session->expire;
+    $c->logout;
     $c->res->redirect(q{/});
 }
 
@@ -35,16 +57,20 @@ sub identities : Local : Args(0) {
     if ( $c->req->method eq 'POST'
         && ( my $delete = $c->req->params->{delete} ) )
     {
-        $c->model('API::User')->delete_identity( $delete, $c->token )->get;
+        $c->user->delete_identity($delete)->get;
         $c->res->redirect('/account/identities');
     }
 }
 
 sub profile : Local : Args(0) {
     my ( $self, $c ) = @_;
-    my $author = $c->model('API::User')->get_profile( $c->token )->get;
-    $c->stash(
-        $author->{error} ? { no_profile => 1 } : { author => $author } );
+    my $user   = $c->user;
+    my $author = $user->get_profile->get;
+    $c->stash( {
+        ( $author->{error} ? ( no_profile => 1 ) : ( author => $author ) ),
+        profiles => $c->model('API::Author')->profile_data,
+    } );
+
     my $req = $c->req;
     return unless ( $req->method eq 'POST' );
 
@@ -92,11 +118,26 @@ sub profile : Local : Args(0) {
 
     $data->{donation} = undef unless ( $req->params->{donations} );
 
-    my $res = $c->model('API::User')->update_profile( $data, $c->token )->get;
+    # validation
+    my @form_errors;
+    push @form_errors,
+        {
+        field   => 'asciiname',
+        message => "ASCII name must only have ASCII characters",
+        }
+        if defined $data->{asciiname}
+        and $data->{asciiname} =~ /[^\x20-\x7F]/;
+    if (@form_errors) {
+        $c->stash( { author => $data, errors => \@form_errors } );
+        return;
+    }
+
+    my $res = $user->update_profile($data)->get;
     if ( $res->{error} ) {
         $c->stash( { author => $data, errors => $res->{errors} } );
     }
     else {
+        $c->purge_author_key( $data->{pauseid} ) if exists $data->{pauseid};
         $c->stash( { success => 1, author => $res } );
     }
 }

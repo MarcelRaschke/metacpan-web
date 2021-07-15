@@ -1,17 +1,19 @@
 package MetaCPAN::Web::Role::Request;
 
-use utf8;
 use Moose::Role;
 use Plack::Session;
 use Cpanel::JSON::XS ();
 use MetaCPAN::Web::Types qw( is_PositiveInt );
-use Try::Tiny;
+use Try::Tiny qw( catch try );
 
 use namespace::autoclean;
 
+has final_args => ( is => 'rw' );
+
 sub page {
-    my $page = shift->parameters->{p};
-    return $page && $page =~ /^\d+$/ ? $page : 1;
+    my $self = shift;
+    my $page = $self->param('p');
+    return is_PositiveInt($page) ? $page : 1;
 }
 
 sub session {
@@ -45,7 +47,7 @@ sub json_param {
 
 sub params_are_decoded {
     my ($self) = @_;
-    return $self->params->{utf8} eq "🐪";
+    return $self->params->{utf8} eq "\x{1f42a}";
 }
 
 1;
