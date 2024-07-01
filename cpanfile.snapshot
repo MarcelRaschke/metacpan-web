@@ -142,18 +142,18 @@ DISTRIBUTIONS
       POSIX::strftime::Compiler 0.30
       Time::Local 0
       perl 5.008001
-  App-perlimports-0.000053
-    pathname: O/OA/OALDERS/App-perlimports-0.000053.tar.gz
+  App-perlimports-0.000054
+    pathname: O/OA/OALDERS/App-perlimports-0.000054.tar.gz
     provides:
-      App::perlimports 0.000053
-      App::perlimports::Annotations 0.000053
-      App::perlimports::CLI 0.000053
-      App::perlimports::Config 0.000053
-      App::perlimports::Document 0.000053
-      App::perlimports::ExportInspector 0.000053
-      App::perlimports::Include 0.000053
-      App::perlimports::Role::Logger 0.000053
-      App::perlimports::Sandbox 0.000053
+      App::perlimports 0.000054
+      App::perlimports::Annotations 0.000054
+      App::perlimports::CLI 0.000054
+      App::perlimports::Config 0.000054
+      App::perlimports::Document 0.000054
+      App::perlimports::ExportInspector 0.000054
+      App::perlimports::Include 0.000054
+      App::perlimports::Role::Logger 0.000054
+      App::perlimports::Sandbox 0.000054
     requirements:
       Capture::Tiny 0
       Class::Inspector 1.36
@@ -833,10 +833,10 @@ DISTRIBUTIONS
       ExtUtils::MakeMaker 0
       Test::More 0
       perl 5.006
-  Crypt-OpenSSL-Random-0.16
-    pathname: R/RU/RURBAN/Crypt-OpenSSL-Random-0.16.tar.gz
+  Crypt-OpenSSL-Random-0.17
+    pathname: R/RU/RURBAN/Crypt-OpenSSL-Random-0.17.tar.gz
     provides:
-      Crypt::OpenSSL::Random 0.16
+      Crypt::OpenSSL::Random 0.17
     requirements:
       Crypt::OpenSSL::Guess 0.11
       ExtUtils::MakeMaker 0
@@ -1611,13 +1611,13 @@ DISTRIBUTIONS
       perl 5.006
       strict 0
       warnings 0
-  ExtUtils-Helpers-0.026
-    pathname: L/LE/LEONT/ExtUtils-Helpers-0.026.tar.gz
+  ExtUtils-Helpers-0.027
+    pathname: L/LE/LEONT/ExtUtils-Helpers-0.027.tar.gz
     provides:
-      ExtUtils::Helpers 0.026
-      ExtUtils::Helpers::Unix 0.026
-      ExtUtils::Helpers::VMS 0.026
-      ExtUtils::Helpers::Windows 0.026
+      ExtUtils::Helpers 0.027
+      ExtUtils::Helpers::Unix 0.027
+      ExtUtils::Helpers::VMS 0.027
+      ExtUtils::Helpers::Windows 0.027
     requirements:
       Carp 0
       Exporter 5.57
@@ -1626,7 +1626,6 @@ DISTRIBUTIONS
       File::Copy 0
       File::Spec::Functions 0
       Text::ParseWords 3.24
-      perl 5.006
       strict 0
       warnings 0
   ExtUtils-InstallPaths-0.013
@@ -1791,11 +1790,11 @@ DISTRIBUTIONS
       Test::Builder::Module 0
       Time::HiRes 0
       perl 5.010
-  Getopt-Long-2.57
-    pathname: J/JV/JV/Getopt-Long-2.57.tar.gz
+  Getopt-Long-2.58
+    pathname: J/JV/JV/Getopt-Long-2.58.tar.gz
     provides:
-      Getopt::Long 2.57
-      Getopt::Long::Parser 2.57
+      Getopt::Long 2.58
+      Getopt::Long::Parser 2.58
     requirements:
       ExtUtils::MakeMaker 0
       Pod::Usage 1.14
